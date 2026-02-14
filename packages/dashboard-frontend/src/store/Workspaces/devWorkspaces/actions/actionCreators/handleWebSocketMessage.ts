@@ -78,6 +78,9 @@ export const handleWebSocketMessage =
         w => WorkspaceAdapter.getId(w) === WorkspaceAdapter.getId(workspace),
       );
 
+      console.log(getState().userId.cheUserId);
+      console.log(getState().userProfile.isLoading);
+
       // update the workspace in the store
       switch (eventPhase) {
         case api.webSocket.EventPhase.ADDED:
@@ -114,11 +117,7 @@ export const handleWebSocketMessage =
         }
       }
 
-      if (
-        phase === DevWorkspaceStatus.RUNNING &&
-        phase !== prevPhase &&
-        devworkspaceId !== undefined
-      ) {
+      if (phase === DevWorkspaceStatus.RUNNING && devworkspaceId !== undefined) {
         try {
           // inject the kube config
           await injectKubeConfig(workspace.metadata.namespace, devworkspaceId);
