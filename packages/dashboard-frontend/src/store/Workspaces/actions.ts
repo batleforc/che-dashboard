@@ -114,6 +114,28 @@ export const actionCreators = {
       );
     },
 
+  restoreFromBackup:
+    (
+      namespace: string,
+      workspaceName: string,
+      backupImageUrl: string,
+      editorId: string,
+      memoryLimit?: number,
+      cpuLimit?: number,
+    ): AppThunk =>
+    async dispatch => {
+      await dispatch(
+        devWorkspacesActionCreators.restoreWorkspaceFromBackup(
+          namespace,
+          workspaceName,
+          backupImageUrl,
+          editorId,
+          memoryLimit,
+          cpuLimit,
+        ),
+      );
+    },
+
   setWorkspaceQualifiedName:
     (namespace: string, workspaceName: string): AppThunk<void> =>
     dispatch => {
