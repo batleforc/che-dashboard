@@ -24,9 +24,11 @@ import React from 'react';
 import { connect, ConnectedProps } from 'react-redux';
 
 import {
+  detectGitService,
   getAdvancedOptionsFromLocation,
   getGitRepoOptionsFromLocation,
   getRepositoryUrlFromLocation,
+  ProviderByHost,
   setAdvancedOptionsToLocation,
   setGitRepoOptionsToLocation,
   validateLocation,
@@ -71,6 +73,8 @@ export type State = {
 class RepoOptionsAccordion extends React.PureComponent<Props, State> {
   private readonly debounce = new Debounce();
   private readonly handleDebouncedUpdate = () => this.updateStateFromLocation();
+  // incremented on each update, so that only the latest git branches request updates the state
+  private updateRequestId = 0;
 
   constructor(props: Props) {
     super(props);
@@ -97,9 +101,12 @@ class RepoOptionsAccordion extends React.PureComponent<Props, State> {
 
   public componentWillUnmount(): void {
     this.debounce.unsubscribe(this.handleDebouncedUpdate);
+    // discard pending git branches requests
+    this.updateRequestId++;
   }
 
   private async updateStateFromLocation(): Promise<void> {
+    const requestId = ++this.updateRequestId;
     const { location, providerByHost } = this.props;
 
     const validated = validateLocation(location, this.state.hasSshKeys);
@@ -120,10 +127,15 @@ class RepoOptionsAccordion extends React.PureComponent<Props, State> {
         getRepositoryUrlFromLocation(location, providerByHost),
       );
       branchList = branchRequest.branches;
-    } finally {
-      state.branchList = branchList;
-      this.setState(state);
+    } catch (e) {
+      // the branch list is not available, e.g. for unsupported or private repositories
     }
+    if (requestId !== this.updateRequestId) {
+      // a newer update has been started, this result is stale
+      return;
+    }
+    state.branchList = branchList;
+    this.setState(state);
   }
 
   public componentDidMount() {
@@ -142,15 +154,32 @@ class RepoOptionsAccordion extends React.PureComponent<Props, State> {
   }
 
   public componentDidUpdate(prevProps: Readonly<Props>) {
-    if (prevProps.providerByHost !== this.props.providerByHost) {
+    const location = this.props.location.trim();
+    if (
+      prevProps.providerByHost !== this.props.providerByHost &&
+      this.detectProvider(location, prevProps.providerByHost) !==
+        this.detectProvider(location, this.props.providerByHost)
+    ) {
+      // the git service of the current location has been (re-)detected
       this.updateStateFromLocation();
       return;
     }
-    const location = this.props.location.trim();
     if (location === prevProps.location || location === this.state.location) {
       return;
     }
     this.debounce.execute();
+  }
+
+  /**
+   * Returns the detected git service of the location as `<provider><pathPrefix>`, e.g. `forgejo/git`.
+   */
+  private detectProvider(location: string, providerByHost: ProviderByHost): string | undefined {
+    try {
+      const { provider, pathPrefix } = detectGitService(location, providerByHost);
+      return `${provider}${pathPrefix}`;
+    } catch (e) {
+      return undefined;
+    }
   }
 
   private handleToggle(id: AccordionId): void {

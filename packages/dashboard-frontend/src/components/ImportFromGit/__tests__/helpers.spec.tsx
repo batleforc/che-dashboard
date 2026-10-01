@@ -139,11 +139,11 @@ describe('helpers', () => {
     test('buildProviderByHost', () => {
       expect(Object.fromEntries(providerByHost)).toEqual({
         // OAuth endpoint wins over the PAT one
-        'git.example.internal': 'gitlab',
-        'github.example.com': 'github',
-        'github.example.org': 'gitlab',
-        'scm.example.org:8443': 'bitbucket-server',
-        'ado.example.net': 'azure-devops',
+        'git.example.internal': [{ pathPrefix: '', provider: 'gitlab' }],
+        'github.example.com': [{ pathPrefix: '', provider: 'github' }],
+        'github.example.org': [{ pathPrefix: '', provider: 'gitlab' }],
+        'scm.example.org:8443': [{ pathPrefix: '', provider: 'bitbucket-server' }],
+        'ado.example.net': [{ pathPrefix: '', provider: 'azure-devops' }],
       });
     });
 
@@ -277,6 +277,53 @@ describe('helpers', () => {
       ).toBe('https://forgejo.example.com/owner/repo');
     });
 
+    test('getRepositoryUrlFromLocation with "src" as an owner or repository name', () => {
+      // owner named "src"
+      expect(
+        helpers.getRepositoryUrlFromLocation('https://codeberg.org/src/repo', providerByHost),
+      ).toBe('https://codeberg.org/src/repo');
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://codeberg.org/src/repo/src/branch/main',
+          providerByHost,
+        ),
+      ).toBe('https://codeberg.org/src/repo');
+      // repository named "src"
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://codeberg.org/owner/src/src/branch/main',
+          providerByHost,
+        ),
+      ).toBe('https://codeberg.org/owner/src');
+      expect(
+        helpers.getRepositoryUrlFromLocation('https://codeberg.org/owner/src/', providerByHost),
+      ).toBe('https://codeberg.org/owner/src');
+    });
+
+    test('getRepositoryUrlFromLocation with tag, commit, trailing slash and .git suffix', () => {
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://codeberg.org/owner/repo/src/tag/v1.0.0',
+          providerByHost,
+        ),
+      ).toBe('https://codeberg.org/owner/repo');
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://codeberg.org/owner/repo/src/commit/0123456789abcdef',
+          providerByHost,
+        ),
+      ).toBe('https://codeberg.org/owner/repo');
+      expect(
+        helpers.getRepositoryUrlFromLocation('https://codeberg.org/owner/repo/', providerByHost),
+      ).toBe('https://codeberg.org/owner/repo');
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://codeberg.org/owner/repo.git?devfilePath=devfile.yaml',
+          providerByHost,
+        ),
+      ).toBe('https://codeberg.org/owner/repo.git');
+    });
+
     test('getBranchFromLocation', () => {
       expect(
         helpers.getBranchFromLocation('https://codeberg.org/owner/repo', providerByHost),
@@ -308,6 +355,60 @@ describe('helpers', () => {
       ).toBe('https://codeberg.org/owner/repo');
     });
 
+    test('setBranchToLocation keeps tag and commit references when no branch is set', () => {
+      expect(
+        helpers.setBranchToLocation(
+          'https://codeberg.org/owner/repo/src/tag/v1.0.0',
+          undefined,
+          providerByHost,
+        ),
+      ).toBe('https://codeberg.org/owner/repo/src/tag/v1.0.0');
+      expect(
+        helpers.setBranchToLocation(
+          'https://codeberg.org/owner/repo/src/commit/0123456789abcdef/',
+          undefined,
+          providerByHost,
+        ),
+      ).toBe('https://codeberg.org/owner/repo/src/commit/0123456789abcdef');
+      // an explicitly chosen branch replaces the tag reference
+      expect(
+        helpers.setBranchToLocation(
+          'https://codeberg.org/owner/repo/src/tag/v1.0.0',
+          'dev',
+          providerByHost,
+        ),
+      ).toBe('https://codeberg.org/owner/repo/src/branch/dev');
+      // incomplete reference
+      expect(
+        helpers.setBranchToLocation(
+          'https://codeberg.org/owner/repo/src/tag',
+          undefined,
+          providerByHost,
+        ),
+      ).toBe('https://codeberg.org/owner/repo');
+    });
+
+    test('getBranchFromLocation returns no branch for a commit', () => {
+      expect(
+        helpers.getBranchFromLocation(
+          'https://codeberg.org/owner/repo/src/commit/0123456789abcdef',
+          providerByHost,
+        ),
+      ).toBeUndefined();
+    });
+
+    test('setGitRepoOptionsToLocation keeps the tag reference', () => {
+      const location = 'https://codeberg.org/owner/repo/src/tag/v1.0.0';
+      const options = helpers.setGitRepoOptionsToLocation(
+        { gitBranch: undefined, remotes: undefined, devfilePath: 'devfile.yaml' },
+        { location, gitBranch: undefined, remotes: undefined, devfilePath: undefined },
+        providerByHost,
+      );
+      expect(options.location).toBe(
+        'https://codeberg.org/owner/repo/src/tag/v1.0.0?devfilePath=devfile.yaml',
+      );
+    });
+
     test('getGitRepoOptionsFromLocation', () => {
       const options = helpers.getGitRepoOptionsFromLocation(
         'https://codeberg.org/owner/repo/src/branch/dev?devfilePath=.devfile.yaml',
@@ -316,6 +417,179 @@ describe('helpers', () => {
       expect(options.hasSupportedGitService).toBe(true);
       expect(options.gitBranch).toBe('dev');
       expect(options.devfilePath).toBe('.devfile.yaml');
+    });
+  });
+
+  describe('subpath endpoints', () => {
+    const providerByHost = helpers.buildProviderByHost(
+      [
+        { name: 'forgejo', endpointUrl: 'https://Example.com/forgejo/' },
+        { name: 'gitlab', endpointUrl: 'https://example.com/forgejo/gitlab' },
+        { name: 'github', endpointUrl: 'https://github.example.com' },
+      ],
+      [
+        {
+          gitProvider: 'bitbucket-server',
+          gitProviderEndpoint: 'https://example.com/bitbucket//',
+        } as api.PersonalAccessToken,
+      ],
+    );
+
+    test('buildProviderByHost keeps the path prefix, longest first', () => {
+      expect(Object.fromEntries(providerByHost)).toEqual({
+        'example.com': [
+          { pathPrefix: '/forgejo/gitlab', provider: 'gitlab' },
+          { pathPrefix: '/bitbucket', provider: 'bitbucket-server' },
+          { pathPrefix: '/forgejo', provider: 'forgejo' },
+        ],
+        'github.example.com': [{ pathPrefix: '', provider: 'github' }],
+      });
+    });
+
+    test('detection inside the path prefix', () => {
+      expect(
+        helpers.getSupportedGitService('https://example.com/forgejo/o/r', providerByHost),
+      ).toBe('forgejo');
+      expect(helpers.getSupportedGitService('https://EXAMPLE.com/forgejo', providerByHost)).toBe(
+        'forgejo',
+      );
+      expect(
+        helpers.detectGitService('https://example.com/forgejo/gitlab/g/p', providerByHost),
+      ).toEqual({ pathPrefix: '/forgejo/gitlab', provider: 'gitlab' });
+      expect(helpers.detectGitService('https://example.com/bitbucket/a/b', providerByHost)).toEqual(
+        { pathPrefix: '/bitbucket', provider: 'bitbucket-server' },
+      );
+    });
+
+    test('no detection outside the path prefix', () => {
+      expect(helpers.isSupportedGitService('https://example.com/o/r', providerByHost)).toBe(false);
+      expect(
+        helpers.isSupportedGitService('https://example.com/forgejo2/o/r', providerByHost),
+      ).toBe(false);
+    });
+
+    test('getRepositoryUrlFromLocation', () => {
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://example.com/forgejo/o/r/src/branch/main?devfilePath=devfile.yaml',
+          providerByHost,
+        ),
+      ).toBe('https://example.com/forgejo/o/r');
+      expect(
+        helpers.getRepositoryUrlFromLocation('https://example.com/forgejo/o/r/', providerByHost),
+      ).toBe('https://example.com/forgejo/o/r');
+      // owner named "src"
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://example.com/forgejo/src/r/src/branch/main',
+          providerByHost,
+        ),
+      ).toBe('https://example.com/forgejo/src/r');
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://example.com/forgejo/gitlab/g/p/-/tree/main',
+          providerByHost,
+        ),
+      ).toBe('https://example.com/forgejo/gitlab/g/p');
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://example.com/bitbucket/users/u/repos/r',
+          providerByHost,
+        ),
+      ).toBe('https://example.com/bitbucket/scm/~u/r');
+    });
+
+    test('getBranchFromLocation', () => {
+      expect(
+        helpers.getBranchFromLocation(
+          'https://example.com/forgejo/o/r/src/branch/feature/x',
+          providerByHost,
+        ),
+      ).toBe('feature/x');
+      expect(
+        helpers.getBranchFromLocation('https://example.com/forgejo/o/r', providerByHost),
+      ).toBeUndefined();
+      expect(
+        helpers.getBranchFromLocation(
+          'https://example.com/forgejo/gitlab/g/p/-/tree/dev',
+          providerByHost,
+        ),
+      ).toBe('dev');
+    });
+
+    test('setBranchToLocation', () => {
+      expect(
+        helpers.setBranchToLocation('https://example.com/forgejo/o/r', 'dev', providerByHost),
+      ).toBe('https://example.com/forgejo/o/r/src/branch/dev');
+      expect(
+        helpers.setBranchToLocation(
+          'https://example.com/forgejo/o/r/src/branch/dev/',
+          undefined,
+          providerByHost,
+        ),
+      ).toBe('https://example.com/forgejo/o/r');
+      expect(
+        helpers.setBranchToLocation(
+          'https://example.com/forgejo/o/r/src/tag/v1.0.0',
+          undefined,
+          providerByHost,
+        ),
+      ).toBe('https://example.com/forgejo/o/r/src/tag/v1.0.0');
+      expect(
+        helpers.setBranchToLocation(
+          'https://example.com/forgejo/gitlab/g/p',
+          'main',
+          providerByHost,
+        ),
+      ).toBe('https://example.com/forgejo/gitlab/g/p/-/tree/main');
+      expect(
+        helpers.setBranchToLocation('https://example.com/bitbucket/a/b', 'main', providerByHost),
+      ).toBe('https://example.com/bitbucket/a/b/src/main');
+    });
+
+    test('getGitRepoOptionsFromLocation and setGitRepoOptionsToLocation', () => {
+      const options = helpers.getGitRepoOptionsFromLocation(
+        'https://example.com/forgejo/o/r/src/branch/dev?devfilePath=.devfile.yaml',
+        providerByHost,
+      );
+      expect(options.hasSupportedGitService).toBe(true);
+      expect(options.gitBranch).toBe('dev');
+      expect(
+        helpers.setGitRepoOptionsToLocation(
+          { gitBranch: 'main', remotes: undefined, devfilePath: undefined },
+          {
+            location: 'https://example.com/forgejo/o/r',
+            gitBranch: undefined,
+            remotes: undefined,
+            devfilePath: undefined,
+          },
+          providerByHost,
+        ).location,
+      ).toBe('https://example.com/forgejo/o/r/src/branch/main');
+    });
+
+    test('root endpoints are unchanged', () => {
+      expect(helpers.detectGitService('https://github.example.com/o/r', providerByHost)).toEqual({
+        pathPrefix: '',
+        provider: 'github',
+      });
+      expect(
+        helpers.setBranchToLocation('https://github.example.com/o/r', 'dev', providerByHost),
+      ).toBe('https://github.example.com/o/r/tree/dev');
+      expect(
+        helpers.getBranchFromLocation('https://github.example.com/o/r/tree/dev', providerByHost),
+      ).toBe('dev');
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://github.example.com/o/r/tree/dev',
+          providerByHost,
+        ),
+      ).toBe('https://github.example.com/o/r');
+      // host name heuristic
+      expect(helpers.detectGitService('https://forgejo.example.org/o/r', providerByHost)).toEqual({
+        pathPrefix: '',
+        provider: 'forgejo',
+      });
     });
   });
 

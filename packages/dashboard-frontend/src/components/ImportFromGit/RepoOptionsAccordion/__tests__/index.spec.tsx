@@ -11,6 +11,7 @@
  */
 
 import { api } from '@eclipse-che/common';
+import { act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -24,10 +25,9 @@ const { createSnapshot, renderComponent } = getComponentRenderer(getComponent);
 
 jest.mock('@/components/ImportFromGit/RepoOptionsAccordion/AdvancedOptions');
 jest.mock('@/components/ImportFromGit/RepoOptionsAccordion/GitRepoOptions');
+const mockFetchGitBranches = jest.fn();
 jest.mock('@/services/backend-client/gitBranchesApi', () => ({
-  fetchGitBranches: () => () => {
-    return Promise.resolve({ branches: [] } as api.IGitBranches);
-  },
+  fetchGitBranches: (...args: unknown[]) => mockFetchGitBranches(...args),
 }));
 
 jest.mock('@/store/GitOauthConfig', () => ({
@@ -49,6 +49,7 @@ describe('RepoOptionsAccordion', () => {
   let store: Store;
 
   beforeEach(() => {
+    mockFetchGitBranches.mockResolvedValue({ branches: [] } as unknown as api.IGitBranches);
     store = new MockStoreBuilder()
       .withSshKeys({
         keys: [{ name: 'key1', keyPub: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD' }],
@@ -209,6 +210,91 @@ describe('RepoOptionsAccordion', () => {
       .withGitOauthConfig([{ name: 'gitlab', endpointUrl: 'https://git.example.internal' }], [], [])
       .build();
     reRenderComponent(nextStore, location);
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('git-repo-options')).toHaveTextContent(
+        'undefined, [], undefined, true',
+      ),
+    );
+  });
+
+  test('ignore a stale git branches response', async () => {
+    const location = 'https://git.example.internal/group/project';
+    let resolveFirstRequest: (value: api.IGitBranches) => void = () => undefined;
+    mockFetchGitBranches.mockReturnValueOnce(
+      new Promise<api.IGitBranches>(resolve => (resolveFirstRequest = resolve)),
+    );
+    // endpoints are not loaded yet, the first request is pending
+    const { reRenderComponent } = renderComponent(store, location);
+    await userEvent.click(screen.getByTestId('accordion-item-git-repo-options'));
+
+    // endpoints are received, the second request resolves
+    const nextStore = new MockStoreBuilder()
+      .withSshKeys({
+        keys: [{ name: 'key1', keyPub: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD' }],
+      })
+      .withGitOauthConfig([{ name: 'gitlab', endpointUrl: 'https://git.example.internal' }], [], [])
+      .build();
+    reRenderComponent(nextStore, location);
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('git-repo-options')).toHaveTextContent(
+        'undefined, [], undefined, true',
+      ),
+    );
+    expect(mockFetchGitBranches).toHaveBeenCalledTimes(2);
+
+    // the first (stale) request resolves last
+    await act(async () => {
+      resolveFirstRequest({ branches: ['main'] } as api.IGitBranches);
+    });
+
+    expect(screen.queryByTestId('git-repo-options')).toHaveTextContent(
+      'undefined, [], undefined, true',
+    );
+  });
+
+  test('do not re-fetch git branches when the detected git service is unchanged', async () => {
+    const location = 'https://git.example.internal/group/project';
+    const buildStore = (gitOauth: { name: api.GitOauthProvider; endpointUrl: string }[]) =>
+      new MockStoreBuilder()
+        .withSshKeys({
+          keys: [{ name: 'key1', keyPub: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD' }],
+        })
+        .withGitOauthConfig(gitOauth, [], [])
+        .build();
+
+    const { reRenderComponent } = renderComponent(
+      buildStore([{ name: 'gitlab', endpointUrl: 'https://git.example.internal' }]),
+      location,
+    );
+    await waitFor(() => expect(mockFetchGitBranches).toHaveBeenCalledTimes(1));
+
+    // same endpoints, new references
+    reRenderComponent(
+      buildStore([{ name: 'gitlab', endpointUrl: 'https://git.example.internal' }]),
+      location,
+    );
+    // another endpoint, which does not affect the current location
+    reRenderComponent(
+      buildStore([
+        { name: 'gitlab', endpointUrl: 'https://git.example.internal' },
+        { name: 'github', endpointUrl: 'https://github.example.internal' },
+      ]),
+      location,
+    );
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(mockFetchGitBranches).toHaveBeenCalledTimes(1);
+  });
+
+  test('handle a failed git branches request', async () => {
+    mockFetchGitBranches.mockRejectedValueOnce(new Error('Failed to fetch branches'));
+
+    renderComponent(store, 'https://github.com/testlocation');
+    await userEvent.click(screen.getByTestId('accordion-item-git-repo-options'));
 
     await waitFor(() =>
       expect(screen.queryByTestId('git-repo-options')).toHaveTextContent(

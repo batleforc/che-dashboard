@@ -64,8 +64,52 @@ describe('GitOauthConfig, selectors', () => {
   it('should select git provider by host', () => {
     const result = selectGitProviderByHost(mockState);
     expect(Object.fromEntries(result)).toEqual({
-      'github.com': 'github',
-      'git.example.internal': 'gitlab',
+      'github.com': [{ pathPrefix: '', provider: 'github' }],
+      'git.example.internal': [{ pathPrefix: '', provider: 'gitlab' }],
+    });
+  });
+
+  it('should not rebuild the git provider by host map when only loading flags change', () => {
+    const result = selectGitProviderByHost(mockState);
+    const nextState = {
+      ...mockState,
+      gitOauthConfig: { ...mockState.gitOauthConfig, isLoading: false },
+      personalAccessToken: { ...mockState.personalAccessToken, isLoading: true },
+    } as RootState;
+    expect(selectGitProviderByHost(nextState)).toBe(result);
+  });
+
+  it('should return the same git provider by host map when its content is unchanged', () => {
+    const result = selectGitProviderByHost(mockState);
+    const nextState = {
+      ...mockState,
+      personalAccessToken: {
+        ...mockState.personalAccessToken,
+        tokens: [...mockState.personalAccessToken.tokens],
+      },
+    } as RootState;
+    expect(selectGitProviderByHost(nextState)).toBe(result);
+  });
+
+  it('should return a new git provider by host map when its content changes', () => {
+    const result = selectGitProviderByHost(mockState);
+    const nextState = {
+      ...mockState,
+      personalAccessToken: {
+        ...mockState.personalAccessToken,
+        tokens: [
+          {
+            gitProvider: 'forgejo',
+            gitProviderEndpoint: 'https://forgejo.example.internal',
+          },
+        ],
+      },
+    } as RootState;
+    const nextResult = selectGitProviderByHost(nextState);
+    expect(nextResult).not.toBe(result);
+    expect(Object.fromEntries(nextResult)).toEqual({
+      'github.com': [{ pathPrefix: '', provider: 'github' }],
+      'forgejo.example.internal': [{ pathPrefix: '', provider: 'forgejo' }],
     });
   });
 

@@ -11,10 +11,10 @@
  */
 
 import { createSelector } from '@reduxjs/toolkit';
+import isEqual from 'lodash/isEqual';
 
 import { buildProviderByHost } from '@/components/ImportFromGit/helpers';
 import { RootState } from '@/store';
-import { selectPersonalAccessTokens } from '@/store/PersonalAccessTokens/selectors';
 
 const selectState = (state: RootState) => state.gitOauthConfig;
 
@@ -35,12 +35,21 @@ export const selectSkipOauthProviders = createSelector(selectState, state => {
 });
 
 /**
- * Host → provider map built from the configured OAuth endpoints and the user's PAT endpoints.
+ * Host → provider endpoints (path prefix and provider) map built from the configured OAuth
+ * endpoints and the user's PAT endpoints.
+ *
+ * Memoized on the endpoint lists only (not on the whole slices, e.g. loading flags), and returns
+ * the previous map as long as its content (deeply compared) is unchanged, so consumers can compare by reference.
  */
 export const selectGitProviderByHost = createSelector(
-  selectGitOauth,
-  selectPersonalAccessTokens,
+  (state: RootState) => state.gitOauthConfig.gitOauth,
+  (state: RootState) => state.personalAccessToken.tokens,
   buildProviderByHost,
+  {
+    memoizeOptions: {
+      resultEqualityCheck: isEqual,
+    },
+  },
 );
 
 export const selectError = createSelector(selectState, state => {
