@@ -24,6 +24,9 @@ export const GIT_OAUTH_PROVIDERS: Record<api.GitOauthProvider, string> = {
   github_2: 'GitHub (The second provider)',
   gitlab: 'GitLab',
   gitlab_2: 'GitLab (The second provider)',
+  // Also covers Gitea, which exposes the same API
+  forgejo: 'Forgejo',
+  forgejo_2: 'Forgejo (The second provider)',
 } as const;
 
 export const DEFAULT_GIT_OAUTH_PROVIDER: api.GitOauthProvider = 'github';
@@ -34,6 +37,7 @@ export const GIT_PROVIDERS: Record<api.GitProvider, string> = {
   github: 'GitHub',
   gitlab: 'GitLab',
   bitbucket: 'Bitbucket',
+  forgejo: 'Forgejo',
 } as const;
 
 export const DEFAULT_GIT_PROVIDER: api.GitProvider = 'github';
@@ -44,4 +48,6 @@ export const GIT_PROVIDER_ENDPOINTS: Record<api.GitProvider, string> = {
   github: 'https://github.com',
   gitlab: 'https://gitlab.com',
   bitbucket: 'https://bitbucket.org/',
+  // Forgejo is mostly self-hosted (e.g. https://codeberg.org): no default, the endpoint is required
+  forgejo: '',
 } as const;

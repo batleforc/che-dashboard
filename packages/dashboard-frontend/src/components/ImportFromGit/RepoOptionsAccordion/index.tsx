@@ -37,6 +37,8 @@ import { GitRemote } from '@/components/WorkspaceProgress/CreatingSteps/Apply/De
 import { fetchGitBranches } from '@/services/backend-client/gitBranchesApi';
 import { Debounce } from '@/services/helpers/debounce';
 import { RootState } from '@/store';
+import { gitOauthConfigActionCreators, selectGitProviderByHost } from '@/store/GitOauthConfig';
+import { personalAccessTokenActionCreators } from '@/store/PersonalAccessTokens';
 import { selectSshKeys } from '@/store/SshKeys/selectors';
 
 type AccordionId = 'git-repo-options' | 'advanced-options';
@@ -98,13 +100,13 @@ class RepoOptionsAccordion extends React.PureComponent<Props, State> {
   }
 
   private async updateStateFromLocation(): Promise<void> {
-    const { location } = this.props;
+    const { location, providerByHost } = this.props;
 
     const validated = validateLocation(location, this.state.hasSshKeys);
     if (validated !== ValidatedOptions.success) {
       return;
     }
-    const gitRepoOptions = getGitRepoOptionsFromLocation(location);
+    const gitRepoOptions = getGitRepoOptionsFromLocation(location, providerByHost);
     if (!gitRepoOptions.location) {
       return;
     }
@@ -114,7 +116,9 @@ class RepoOptionsAccordion extends React.PureComponent<Props, State> {
 
     let branchList: string[] | undefined = undefined;
     try {
-      const branchRequest = await fetchGitBranches(getRepositoryUrlFromLocation(location));
+      const branchRequest = await fetchGitBranches(
+        getRepositoryUrlFromLocation(location, providerByHost),
+      );
       branchList = branchRequest.branches;
     } finally {
       state.branchList = branchList;
@@ -125,9 +129,23 @@ class RepoOptionsAccordion extends React.PureComponent<Props, State> {
   public componentDidMount() {
     this.debounce.subscribe(this.handleDebouncedUpdate);
     this.updateStateFromLocation();
+    this.requestGitProviderEndpoints();
+  }
+
+  /**
+   * Loads the configured OAuth endpoints and the user's PAT endpoints,
+   * used to detect the provider of self-hosted Git servers.
+   */
+  private async requestGitProviderEndpoints(): Promise<void> {
+    const { requestGitOauthConfig, requestTokens } = this.props;
+    await Promise.allSettled([requestGitOauthConfig(), requestTokens()]);
   }
 
   public componentDidUpdate(prevProps: Readonly<Props>) {
+    if (prevProps.providerByHost !== this.props.providerByHost) {
+      this.updateStateFromLocation();
+      return;
+    }
     const location = this.props.location.trim();
     if (location === prevProps.location || location === this.state.location) {
       return;
@@ -162,6 +180,7 @@ class RepoOptionsAccordion extends React.PureComponent<Props, State> {
         remotes: this.state.remotes,
         devfilePath: this.state.devfilePath,
       },
+      this.props.providerByHost,
     ) as State;
     state.remotesValidated = isValid ? ValidatedOptions.success : ValidatedOptions.error;
     this.setState(state);
@@ -290,9 +309,13 @@ class RepoOptionsAccordion extends React.PureComponent<Props, State> {
 
 const mapStateToProps = (state: RootState) => ({
   sshKeys: selectSshKeys(state),
+  providerByHost: selectGitProviderByHost(state),
 });
 
-const connector = connect(mapStateToProps);
+const connector = connect(mapStateToProps, {
+  requestGitOauthConfig: gitOauthConfigActionCreators.requestGitOauthConfig,
+  requestTokens: personalAccessTokenActionCreators.requestTokens,
+});
 
 type MappedProps = ConnectedProps<typeof connector>;
 export default connector(RepoOptionsAccordion);

@@ -14,6 +14,7 @@ import { RootState } from '@/store';
 import {
   selectError,
   selectGitOauth,
+  selectGitProviderByHost,
   selectIsLoading,
   selectProvidersWithToken,
   selectSkipOauthProviders,
@@ -27,6 +28,16 @@ describe('GitOauthConfig, selectors', () => {
       providersWithToken: ['github'],
       skipOauthProviders: ['gitlab'],
       error: 'Something went wrong',
+    },
+    personalAccessToken: {
+      isLoading: false,
+      tokens: [
+        {
+          gitProvider: 'gitlab',
+          gitProviderEndpoint: 'https://git.example.internal',
+        },
+      ],
+      error: undefined,
     },
   } as RootState;
 
@@ -48,6 +59,14 @@ describe('GitOauthConfig, selectors', () => {
   it('should select skipOauthProviders', () => {
     const result = selectSkipOauthProviders(mockState);
     expect(result).toEqual(['gitlab']);
+  });
+
+  it('should select git provider by host', () => {
+    const result = selectGitProviderByHost(mockState);
+    expect(Object.fromEntries(result)).toEqual({
+      'github.com': 'github',
+      'git.example.internal': 'gitlab',
+    });
   });
 
   it('should select error', () => {

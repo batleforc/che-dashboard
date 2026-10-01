@@ -12,7 +12,9 @@
 
 import { createSelector } from '@reduxjs/toolkit';
 
+import { buildProviderByHost } from '@/components/ImportFromGit/helpers';
 import { RootState } from '@/store';
+import { selectPersonalAccessTokens } from '@/store/PersonalAccessTokens/selectors';
 
 const selectState = (state: RootState) => state.gitOauthConfig;
 
@@ -31,6 +33,15 @@ export const selectProvidersWithToken = createSelector(selectState, state => {
 export const selectSkipOauthProviders = createSelector(selectState, state => {
   return state.skipOauthProviders;
 });
+
+/**
+ * Host → provider map built from the configured OAuth endpoints and the user's PAT endpoints.
+ */
+export const selectGitProviderByHost = createSelector(
+  selectGitOauth,
+  selectPersonalAccessTokens,
+  buildProviderByHost,
+);
 
 export const selectError = createSelector(selectState, state => {
   return state.error;

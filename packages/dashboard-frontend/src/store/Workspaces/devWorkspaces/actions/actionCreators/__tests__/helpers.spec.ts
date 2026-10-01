@@ -100,6 +100,25 @@ describe('devWorkspaces, helpers', () => {
       );
     });
 
+    it('should return provider-specific warning if provider is Forgejo', () => {
+      const error = {
+        response: {
+          data: {
+            attributes: {
+              provider: 'forgejo_2',
+            },
+            message: 'Forgejo error message',
+          },
+        },
+      };
+      (helpers.errors.includesAxiosResponse as unknown as jest.Mock).mockReturnValue(true);
+
+      const result = getWarningFromResponse(error);
+      expect(result).toBe(
+        "Forgejo might not be operational, please check the provider's status page.",
+      );
+    });
+
     it('should return generic message if provider is unknown', () => {
       const error = {
         response: {

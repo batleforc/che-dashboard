@@ -17,7 +17,7 @@ import { Provider } from 'react-redux';
 import { Store } from 'redux';
 
 import RepoOptionsAccordion from '@/components/ImportFromGit/RepoOptionsAccordion';
-import getComponentRenderer, { screen } from '@/services/__mocks__/getComponentRenderer';
+import getComponentRenderer, { screen, waitFor } from '@/services/__mocks__/getComponentRenderer';
 import { MockStoreBuilder } from '@/store/__mocks__/mockStore';
 
 const { createSnapshot, renderComponent } = getComponentRenderer(getComponent);
@@ -27,6 +27,19 @@ jest.mock('@/components/ImportFromGit/RepoOptionsAccordion/GitRepoOptions');
 jest.mock('@/services/backend-client/gitBranchesApi', () => ({
   fetchGitBranches: () => () => {
     return Promise.resolve({ branches: [] } as api.IGitBranches);
+  },
+}));
+
+jest.mock('@/store/GitOauthConfig', () => ({
+  ...jest.requireActual('@/store/GitOauthConfig'),
+  gitOauthConfigActionCreators: {
+    requestGitOauthConfig: () => async () => undefined,
+  },
+}));
+jest.mock('@/store/PersonalAccessTokens', () => ({
+  ...jest.requireActual('@/store/PersonalAccessTokens'),
+  personalAccessTokenActionCreators: {
+    requestTokens: () => async () => undefined,
   },
 }));
 
@@ -150,6 +163,57 @@ describe('RepoOptionsAccordion', () => {
       'https://github.com/testlocation/undefined/tree/newBranch?remotes={{test-updated,http://test}}&devfilePath=newDevfilePath',
       'success',
       'newBranch',
+    );
+  });
+
+  test('update Git Repo Options with a self-hosted git service configured by endpoint', async () => {
+    store = new MockStoreBuilder()
+      .withSshKeys({
+        keys: [{ name: 'key1', keyPub: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD' }],
+      })
+      .withGitOauthConfig([{ name: 'gitlab', endpointUrl: 'https://git.example.internal' }], [], [])
+      .build();
+
+    renderComponent(store, 'https://git.example.internal/group/project');
+
+    await userEvent.click(screen.getByTestId('accordion-item-git-repo-options'));
+
+    expect(screen.queryByTestId('git-repo-options')).toHaveTextContent(
+      'undefined, [], undefined, true',
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Git Repo Options Change' }));
+
+    expect(mockOnChange).toHaveBeenCalledWith(
+      'https://git.example.internal/group/project/-/tree/newBranch?remotes={{test-updated,http://test}}&devfilePath=newDevfilePath',
+      'success',
+      'newBranch',
+    );
+  });
+
+  test('re-detect the git service when endpoints are loaded after mount', async () => {
+    const location = 'https://git.example.internal/group/project';
+    // endpoints are not loaded yet
+    const { reRenderComponent } = renderComponent(store, location);
+
+    await userEvent.click(screen.getByTestId('accordion-item-git-repo-options'));
+    expect(screen.queryByTestId('git-repo-options')).toHaveTextContent(
+      'undefined, [], undefined, false',
+    );
+
+    // endpoints are received
+    const nextStore = new MockStoreBuilder()
+      .withSshKeys({
+        keys: [{ name: 'key1', keyPub: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD' }],
+      })
+      .withGitOauthConfig([{ name: 'gitlab', endpointUrl: 'https://git.example.internal' }], [], [])
+      .build();
+    reRenderComponent(nextStore, location);
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('git-repo-options')).toHaveTextContent(
+        'undefined, [], undefined, true',
+      ),
     );
   });
 });

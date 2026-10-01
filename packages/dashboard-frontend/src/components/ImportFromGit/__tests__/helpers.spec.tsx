@@ -10,11 +10,12 @@
  *   Red Hat, Inc. - initial API and implementation
  */
 
-import common from '@eclipse-che/common';
+import common, { api } from '@eclipse-che/common';
 import { ValidatedOptions } from '@patternfly/react-core';
 
 import * as helpers from '@/components/ImportFromGit/helpers';
 import { formatBytes, getBytes } from '@/components/ImportFromGit/helpers';
+import { IGitOauth } from '@/store/GitOauthConfig';
 
 describe('helpers', () => {
   afterEach(() => {
@@ -76,6 +77,7 @@ describe('helpers', () => {
         'gitlab',
         'bitbucket-server',
         'azure-devops',
+        'forgejo',
       ]);
     });
   });
@@ -105,6 +107,215 @@ describe('helpers', () => {
 
     test('should return false when provider is not supported', () => {
       expect(helpers.isSupportedGitService('https://not-supported.com')).toBe(false);
+    });
+  });
+
+  describe('endpoint-based provider detection', () => {
+    const gitOauth: IGitOauth[] = [
+      { name: 'gitlab', endpointUrl: 'https://git.example.internal' },
+      { name: 'github_2', endpointUrl: 'https://github.example.com/' },
+      { name: 'gitlab_2', endpointUrl: 'https://github.example.org' },
+      { name: 'bitbucket', endpointUrl: 'https://scm.example.org:8443' },
+      { name: 'github', endpointUrl: 'not-a-url' },
+    ];
+    const tokens = [
+      {
+        gitProvider: 'github',
+        gitProviderEndpoint: 'https://git.example.internal',
+      },
+      {
+        gitProvider: 'azure-devops',
+        gitProviderEndpoint: 'https://ado.example.net',
+        gitProviderOrganization: 'org',
+      },
+    ] as api.PersonalAccessToken[];
+
+    let providerByHost: helpers.ProviderByHost;
+
+    beforeEach(() => {
+      providerByHost = helpers.buildProviderByHost(gitOauth, tokens);
+    });
+
+    test('buildProviderByHost', () => {
+      expect(Object.fromEntries(providerByHost)).toEqual({
+        // OAuth endpoint wins over the PAT one
+        'git.example.internal': 'gitlab',
+        'github.example.com': 'github',
+        'github.example.org': 'gitlab',
+        'scm.example.org:8443': 'bitbucket-server',
+        'ado.example.net': 'azure-devops',
+      });
+    });
+
+    test('buildProviderByHost with no configuration', () => {
+      expect(helpers.buildProviderByHost([], []).size).toBe(0);
+    });
+
+    test('configured self-hosted GitLab is detected as "gitlab"', () => {
+      const location = 'https://git.example.internal/group/project/-/tree/feature/x';
+      expect(helpers.getSupportedGitService(location, providerByHost)).toBe('gitlab');
+      expect(helpers.isSupportedGitService(location, providerByHost)).toBe(true);
+      expect(helpers.getBranchFromLocation(location, providerByHost)).toBe('feature/x');
+      expect(helpers.getRepositoryUrlFromLocation(location, providerByHost)).toBe(
+        'https://git.example.internal/group/project',
+      );
+      expect(
+        helpers.setBranchToLocation(
+          'https://git.example.internal/group/project',
+          'main',
+          providerByHost,
+        ),
+      ).toBe('https://git.example.internal/group/project/-/tree/main');
+    });
+
+    test('host matched by both the table and the heuristic: table wins', () => {
+      const location = 'https://github.example.org/group/project/-/tree/main';
+      expect(helpers.getSupportedGitService(location)).toBe('github');
+      expect(helpers.getSupportedGitService(location, providerByHost)).toBe('gitlab');
+      expect(helpers.getBranchFromLocation(location, providerByHost)).toBe('main');
+    });
+
+    test('host with port is matched', () => {
+      expect(
+        helpers.getSupportedGitService('https://scm.example.org:8443/a/b', providerByHost),
+      ).toBe('bitbucket-server');
+      expect(() =>
+        helpers.getSupportedGitService('https://scm.example.org/a/b', providerByHost),
+      ).toThrow('Provider not supported: scm.example.org');
+    });
+
+    test('unknown host falls back to the heuristic', () => {
+      expect(helpers.getSupportedGitService('https://github.com/a/b', providerByHost)).toBe(
+        'github',
+      );
+      expect(() =>
+        helpers.getSupportedGitService('https://not-supported.com', providerByHost),
+      ).toThrow('Provider not supported: not-supported.com');
+    });
+
+    test('unknown host without configuration: unchanged behaviour', () => {
+      expect(() =>
+        helpers.getSupportedGitService('https://git.example.internal/a/b', new Map()),
+      ).toThrow('Provider not supported: git.example.internal');
+      expect(helpers.isSupportedGitService('https://git.example.internal/a/b')).toBe(false);
+    });
+
+    test('getGitRepoOptionsFromLocation', () => {
+      const options = helpers.getGitRepoOptionsFromLocation(
+        'https://git.example.internal/group/project/-/tree/dev?devfilePath=devfile2.yaml',
+        providerByHost,
+      );
+      expect(options.hasSupportedGitService).toBe(true);
+      expect(options.gitBranch).toBe('dev');
+      expect(options.devfilePath).toBe('devfile2.yaml');
+    });
+
+    test('setGitRepoOptionsToLocation', () => {
+      const options = helpers.setGitRepoOptionsToLocation(
+        { gitBranch: 'dev', remotes: undefined, devfilePath: undefined },
+        {
+          location: 'https://git.example.internal/group/project',
+          gitBranch: undefined,
+          remotes: undefined,
+          devfilePath: undefined,
+        },
+        providerByHost,
+      );
+      expect(options.location).toBe('https://git.example.internal/group/project/-/tree/dev');
+    });
+  });
+
+  describe('forgejo', () => {
+    // Codeberg is a Forgejo instance whose host does not contain "forgejo"
+    const providerByHost = helpers.buildProviderByHost(
+      [{ name: 'forgejo_2', endpointUrl: 'https://codeberg.org' }],
+      [],
+    );
+
+    test('detection by host name', () => {
+      expect(helpers.getSupportedGitService('https://forgejo.example.com/owner/repo')).toBe(
+        'forgejo',
+      );
+      expect(helpers.isSupportedGitService('https://codeberg.org/owner/repo')).toBe(false);
+    });
+
+    test('detection by configured endpoint', () => {
+      expect(
+        helpers.getSupportedGitService('https://codeberg.org/owner/repo', providerByHost),
+      ).toBe('forgejo');
+    });
+
+    test('detection by personal access token endpoint', () => {
+      const byToken = helpers.buildProviderByHost(
+        [],
+        [
+          {
+            gitProvider: 'forgejo',
+            gitProviderEndpoint: 'https://git.example.com:3000',
+          } as api.PersonalAccessToken,
+        ],
+      );
+      expect(
+        helpers.getSupportedGitService('https://git.example.com:3000/owner/repo', byToken),
+      ).toBe('forgejo');
+    });
+
+    test('getRepositoryUrlFromLocation', () => {
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://codeberg.org/owner/repo/src/branch/main',
+          providerByHost,
+        ),
+      ).toBe('https://codeberg.org/owner/repo');
+      expect(
+        helpers.getRepositoryUrlFromLocation('https://codeberg.org/owner/repo', providerByHost),
+      ).toBe('https://codeberg.org/owner/repo');
+      expect(
+        helpers.getRepositoryUrlFromLocation(
+          'https://forgejo.example.com/owner/repo/src/branch/main?devfilePath=devfile.yaml',
+        ),
+      ).toBe('https://forgejo.example.com/owner/repo');
+    });
+
+    test('getBranchFromLocation', () => {
+      expect(
+        helpers.getBranchFromLocation('https://codeberg.org/owner/repo', providerByHost),
+      ).toBeUndefined();
+      expect(
+        helpers.getBranchFromLocation(
+          'https://codeberg.org/owner/repo/src/branch/feature/new-ui',
+          providerByHost,
+        ),
+      ).toBe('feature/new-ui');
+      expect(
+        helpers.getBranchFromLocation(
+          'https://codeberg.org/owner/repo/src/tag/v1.0.0',
+          providerByHost,
+        ),
+      ).toBeUndefined();
+    });
+
+    test('setBranchToLocation', () => {
+      expect(
+        helpers.setBranchToLocation('https://codeberg.org/owner/repo', 'dev', providerByHost),
+      ).toBe('https://codeberg.org/owner/repo/src/branch/dev');
+      expect(
+        helpers.setBranchToLocation(
+          'https://codeberg.org/owner/repo/src/branch/dev',
+          undefined,
+          providerByHost,
+        ),
+      ).toBe('https://codeberg.org/owner/repo');
+    });
+
+    test('getGitRepoOptionsFromLocation', () => {
+      const options = helpers.getGitRepoOptionsFromLocation(
+        'https://codeberg.org/owner/repo/src/branch/dev?devfilePath=.devfile.yaml',
+        providerByHost,
+      );
+      expect(options.hasSupportedGitService).toBe(true);
+      expect(options.gitBranch).toBe('dev');
+      expect(options.devfilePath).toBe('.devfile.yaml');
     });
   });
 

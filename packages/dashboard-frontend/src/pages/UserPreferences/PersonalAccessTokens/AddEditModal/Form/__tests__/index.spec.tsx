@@ -207,6 +207,39 @@ describe('AddEditModalForm', () => {
     });
   });
 
+  describe('Forgejo', () => {
+    it('should require a git provider endpoint', async () => {
+      renderComponent({ isEdit: false, token: undefined });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Submit Provider Forgejo' }));
+      await userEvent.click(screen.getByRole('button', { name: NEW_TOKEN_NAME_BUTTON }));
+      await userEvent.click(screen.getByRole('button', { name: NEW_TOKEN_DATA_BUTTON }));
+
+      // no default endpoint for Forgejo
+      expect(mockOnChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          gitProvider: 'forgejo',
+          gitProviderEndpoint: '',
+        }),
+        false,
+      );
+
+      await userEvent.click(screen.getByRole('button', { name: NEW_GIT_PROVIDER_ENDPOINT_BUTTON }));
+
+      expect(mockOnChange).toHaveBeenLastCalledWith(
+        {
+          cheUserId,
+          gitProvider: 'forgejo',
+          gitProviderEndpoint: NEW_GIT_PROVIDER_ENDPOINT,
+          tokenName: NEW_TOKEN_NAME,
+          tokenData: NEW_TOKEN_DATA,
+          isOauth: false,
+        },
+        true,
+      );
+    });
+  });
+
   describe('Git provider endpoint', () => {
     it('should handle changing the git provider endpoint to a valid value', async () => {
       renderComponent({ isEdit: true, token: pat });

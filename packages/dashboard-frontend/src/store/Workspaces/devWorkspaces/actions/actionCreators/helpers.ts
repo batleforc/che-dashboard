@@ -52,6 +52,8 @@ export function getWarningFromResponse(e: unknown): string | undefined {
       provider = 'Gitlab';
     } else if (providerAttribute.startsWith('bitbucket')) {
       provider = 'Bitbucket';
+    } else if (providerAttribute.startsWith('forgejo')) {
+      provider = 'Forgejo';
     }
   }
 

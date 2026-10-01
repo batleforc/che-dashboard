@@ -156,6 +156,27 @@ describe('Helpers for Personal Access Token API', () => {
       });
     });
 
+    test('token with correct data - forgejo', () => {
+      const namespace = 'user-che';
+      const token: api.PersonalAccessToken = {
+        tokenName: 'asdf-1234',
+        cheUserId: 'che-user',
+        gitProvider: 'forgejo',
+        gitProviderEndpoint: 'https://forgejo.example.com',
+        tokenData: 'base64-encoded-token-data',
+        isOauth: false,
+      };
+
+      const secret = toSecret(namespace, token);
+      // che-server matches personal access tokens by this provider name
+      expect(secret.metadata.annotations).toStrictEqual({
+        'che.eclipse.org/che-userid': 'che-user',
+        'che.eclipse.org/scm-personal-access-token-name': 'forgejo',
+        'che.eclipse.org/scm-provider-name': 'forgejo',
+        'che.eclipse.org/scm-url': 'https://forgejo.example.com/',
+      });
+    });
+
     test('token with correct data - azure-devops', () => {
       const namespace = 'user-che';
       const token: api.PersonalAccessToken = {

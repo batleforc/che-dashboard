@@ -32,6 +32,12 @@ export class GitProviderSelector extends React.PureComponent<Props, State> {
           value="Submit Provider GitHub"
           onClick={() => onSelect('github')}
         />
+        <input
+          data-testid="submit-git-provider-forgejo"
+          type="button"
+          value="Submit Provider Forgejo"
+          onClick={() => onSelect('forgejo')}
+        />
       </div>
     );
   }
