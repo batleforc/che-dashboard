@@ -189,6 +189,9 @@ export class AddEditModalForm extends React.PureComponent<Props, State> {
         <GitProviderEndpoint
           defaultProviderEndpoint={defaultGitProviderEndpoint}
           providerEndpoint={gitProviderEndpoint}
+          emptyEndpointMessage={
+            gitProvider === 'forgejo' ? 'The Forgejo instance URL is required.' : undefined
+          }
           onChange={(...args) => this.handleChangeGitProviderEndpoint(...args)}
         />
         {gitProvider === 'azure-devops' && (

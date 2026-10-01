@@ -111,6 +111,100 @@ describe('GitProviderEndpoint', () => {
     // expect(screen.queryByText('This field is required.')).toBeTruthy();
   });
 
+  describe('hosts', () => {
+    it.each([
+      ['a single-label host', 'http://forgejo:3000', 'http://forgejo:3000/'],
+      [
+        'an in-cluster service host',
+        'http://forgejo.forgejo.svc:3000',
+        'http://forgejo.forgejo.svc:3000/',
+      ],
+      ['an IPv4 address', 'http://10.0.0.5:3000', 'http://10.0.0.5:3000/'],
+      ['an IPv6 address', 'https://[::1]:3000', 'https://[::1]:3000/'],
+    ])('should accept %s', async (_title, endpoint, sanitized) => {
+      renderComponent(undefined);
+
+      const input = screen.getByRole('textbox');
+      await userEvent.clear(input);
+      await userEvent.paste(endpoint);
+
+      expect(mockOnChange).toHaveBeenLastCalledWith(sanitized, true);
+      expect(
+        screen.queryByText(
+          'Invalid URL format. Must be a valid URL starting with http:// or https://',
+        ),
+      ).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['garbage', 'not a url'],
+      ['a missing scheme', 'forgejo:3000'],
+      ['a non-http scheme', 'ssh://forgejo:22'],
+      ['a missing host', 'http:///path'],
+      ['a malformed host', 'http://[::1'],
+      ['a whitespace in the host', 'http://forge jo:3000'],
+    ])('should reject %s', async (_title, endpoint) => {
+      renderComponent(undefined);
+
+      const input = screen.getByRole('textbox');
+      await userEvent.clear(input);
+      await userEvent.paste(endpoint);
+
+      expect(mockOnChange).toHaveBeenLastCalledWith(endpoint, false);
+      expect(
+        screen.getByText(
+          'Invalid URL format. Must be a valid URL starting with http:// or https://',
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe('provider without a default endpoint', () => {
+    it('should show the required error right away', () => {
+      renderComponent(undefined, '');
+
+      expect(screen.getByRole('textbox')).toHaveValue('');
+      expect(screen.getByRole('textbox')).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText('Git provider endpoint is required.')).toBeInTheDocument();
+      expect(mockOnChange).not.toHaveBeenCalled();
+    });
+
+    it('should show the custom empty endpoint message', () => {
+      renderComponent(undefined, '', 'The Forgejo instance URL is required.');
+
+      expect(screen.getByText('The Forgejo instance URL is required.')).toBeInTheDocument();
+      expect(screen.queryByText('Git provider endpoint is required.')).not.toBeInTheDocument();
+    });
+
+    it('should show the error when the default endpoint becomes empty', () => {
+      const { reRenderComponent } = renderComponent(undefined);
+
+      expect(screen.queryByText('Git provider endpoint is required.')).not.toBeInTheDocument();
+
+      reRenderComponent(undefined, '');
+
+      expect(screen.getByRole('textbox')).toHaveValue('');
+      expect(screen.getByText('Git provider endpoint is required.')).toBeInTheDocument();
+
+      // switching back to a provider with a default endpoint hides the error
+      reRenderComponent(undefined, defaultGitProviderEndpoint);
+
+      expect(screen.getByRole('textbox')).toHaveValue(defaultGitProviderEndpoint);
+      expect(screen.queryByText('Git provider endpoint is required.')).not.toBeInTheDocument();
+    });
+
+    it('should hide the error once a valid endpoint is entered', async () => {
+      renderComponent(undefined, '');
+
+      const input = screen.getByRole('textbox');
+      await userEvent.click(input);
+      await userEvent.paste('http://forgejo:3000');
+
+      expect(mockOnChange).toHaveBeenLastCalledWith('http://forgejo:3000/', true);
+      expect(screen.queryByText('Git provider endpoint is required.')).not.toBeInTheDocument();
+    });
+  });
+
   describe('default endpoint update', () => {
     it('should change value if input untouched', () => {
       const { reRenderComponent } = renderComponent(undefined);
@@ -321,12 +415,14 @@ describe('GitProviderEndpoint', () => {
 function getComponent(
   providerEndpoint: string | undefined,
   defaultProviderEndpoint = defaultGitProviderEndpoint,
+  emptyEndpointMessage?: string,
 ): React.ReactElement {
   return (
     <Form>
       <GitProviderEndpoint
         defaultProviderEndpoint={defaultProviderEndpoint}
         providerEndpoint={providerEndpoint}
+        emptyEndpointMessage={emptyEndpointMessage}
         onChange={(...args) => mockOnChange(...args)}
       />
     </Form>

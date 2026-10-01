@@ -21,10 +21,11 @@ export const INVALID_GIT_PROVIDER_ENDPOINT = 'invalid-git-provider-endpoint';
 
 export class GitProviderEndpoint extends React.PureComponent<Props, State> {
   public render(): React.ReactElement {
-    const { onChange } = this.props;
+    const { emptyEndpointMessage, onChange } = this.props;
 
     return (
       <div data-testid="git-provider-endpoint">
+        {emptyEndpointMessage && <span>{emptyEndpointMessage}</span>}
         <input
           data-testid="submit-invalid-git-provider-endpoint"
           type="button"

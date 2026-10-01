@@ -25,6 +25,8 @@ import React from 'react';
 export type Props = {
   defaultProviderEndpoint: string;
   providerEndpoint: string | undefined;
+  // message shown when the endpoint is empty, e.g. for providers without a default endpoint
+  emptyEndpointMessage?: string;
   onChange: (providerEndpoint: string, isValid: boolean) => void;
 };
 
@@ -111,8 +113,8 @@ export class GitProviderEndpoint extends React.PureComponent<Props, State> {
         sanitized: '',
       };
     }
-    const validationRegexp =
-      /^https?:\/\/(?:(?:[a-z\d]+(?:-[a-z\d]+)*)\.)+[a-z]{2,}(?::\d{1,5})?(?:\/[^\s]*)?$/i;
+    // require an explicit http(s) scheme followed by a non-empty authority
+    const validationRegexp = /^https?:\/\/[^\s/?#]+(?:[/?#]\S*)?$/i;
 
     if (!validationRegexp.test(providerEndpoint)) {
       return {
@@ -122,12 +124,12 @@ export class GitProviderEndpoint extends React.PureComponent<Props, State> {
     }
 
     try {
+      // accepts any valid host: FQDN, single-label (in-cluster) host, IPv4 or IPv6 address
       const url = new URL(providerEndpoint);
       return {
         validated: ValidatedOptions.success,
         sanitized: url.href,
       };
-      /* c8 ignore next 6 */
     } catch (e) {
       return {
         validated: ValidatedOptions.error,
@@ -138,7 +140,7 @@ export class GitProviderEndpoint extends React.PureComponent<Props, State> {
 
   private getErrorMessage(providerEndpoint: string): string {
     if (providerEndpoint.length === 0) {
-      return 'Git provider endpoint is required.';
+      return this.props.emptyEndpointMessage || 'Git provider endpoint is required.';
     }
     return 'Invalid URL format. Must be a valid URL starting with http:// or https://';
   }
@@ -147,7 +149,10 @@ export class GitProviderEndpoint extends React.PureComponent<Props, State> {
     const { providerEndpoint = '', validated } = this.state;
 
     const errorMessage = this.getErrorMessage(providerEndpoint);
-    const hasError = validated === ValidatedOptions.error;
+    // an untouched empty field means there is no default endpoint for the selected provider
+    const isEmptyUntouched =
+      validated === ValidatedOptions.default && providerEndpoint.length === 0;
+    const hasError = validated === ValidatedOptions.error || isEmptyUntouched;
 
     return (
       <FormGroup fieldId="git-provider-endpoint-label" isRequired label="Git Provider Endpoint">

@@ -208,6 +208,16 @@ describe('AddEditModalForm', () => {
   });
 
   describe('Forgejo', () => {
+    it('should pass the required endpoint message only for Forgejo', async () => {
+      renderComponent({ isEdit: false, token: undefined });
+
+      expect(screen.queryByText('The Forgejo instance URL is required.')).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Submit Provider Forgejo' }));
+
+      expect(screen.getByText('The Forgejo instance URL is required.')).toBeInTheDocument();
+    });
+
     it('should require a git provider endpoint', async () => {
       renderComponent({ isEdit: false, token: undefined });
 
